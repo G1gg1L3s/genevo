@@ -264,49 +264,20 @@ where
     F: Fitness + Send + Sync,
     E: FitnessFunction<G, F> + Sync,
 {
-    if population.len() < 50 {
-        timed(|| {
-            let mut fitness = Vec::with_capacity(population.len());
-            let mut highest = evaluator.lowest_possible_fitness();
-            let mut lowest = evaluator.highest_possible_fitness();
-            for genome in population.iter() {
-                let score = evaluator.fitness_of(genome);
-                if score > highest {
-                    highest = score.clone();
-                }
-                if score < lowest {
-                    lowest = score.clone();
-                }
-                fitness.push(score);
-            }
-            (fitness, highest, lowest)
-        })
-        .run()
-    } else {
-        let mid_point = population.len() / 2;
-        let (l_slice, r_slice) = population.split_at(mid_point);
-        let (mut left, mut right) = rayon::join(
-            || par_evaluate_fitness(l_slice, evaluator),
-            || par_evaluate_fitness(r_slice, evaluator),
-        );
+    use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
+
+    timed(|| {
         let mut fitness = Vec::with_capacity(population.len());
-        fitness.append(&mut left.result.0);
-        fitness.append(&mut right.result.0);
-        let highest = if left.result.1 >= right.result.1 {
-            left.result.1
-        } else {
-            right.result.1
-        };
-        let lowest = if left.result.2 <= right.result.2 {
-            left.result.2
-        } else {
-            right.result.2
-        };
-        TimedResult {
-            result: (fitness, highest, lowest),
-            time: left.time + right.time,
-        }
-    }
+
+        population
+            .par_iter()
+            .map(|genome| evaluator.fitness_of(genome))
+            .collect_into_vec(&mut fitness);
+        let min = fitness.iter().min().expect("is not empty").clone();
+        let max = fitness.iter().max().expect("is not empty").clone();
+        (fitness, max, min)
+    })
+    .run()
 }
 
 #[cfg(target_arch = "wasm32")]
